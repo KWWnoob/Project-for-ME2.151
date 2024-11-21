@@ -1,2 +1,2 @@
 # Project for ME2.151
- FingerControl
+ Finger Control, By Kiwan Wong, Benjamin Zeng, and Joy Liu
