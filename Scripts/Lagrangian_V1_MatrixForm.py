@@ -8,7 +8,7 @@ q_dot = q.diff(t)         # Velocity vector
 q_ddot = q_dot.diff(t)    # Acceleration vector
 
 # Parameters
-m1, m2, k, Fr = symbols('m1 m2 k Fr')  # Masses, spring constant, external force
+m1, m2, k, F = symbols('m1 m2 k F')  # Masses, spring constant, extensionternal force
 l, r = symbols('l r')                  # Length of rod and radius of disk
 I1, I2 = symbols('I1 I2')              # Moments of inertia for disks (I1) and rods (I2)
 
@@ -35,19 +35,19 @@ euler_lagrange_eqs = Matrix([
 
 # Define external forces as specified (TODO: diffrent routings + frictions as damping effect)
 F_external = Matrix([
-    Fr - k * q1 * r,
-    Fr - k * q2 * r,
-    Fr - k * q3 * r
+    F*r - k * q1 * r,
+    F*r - k * q2 * r,
+    F*r - k * q3 * r
 ])
 
 # Split into mass, damping, and stiffness terms
 M = euler_lagrange_eqs.jacobian(q_ddot)  # Mass matrix
 C = euler_lagrange_eqs.jacobian(q_dot) - M.diff(t)  # Coriolis/Damping terms
 K = euler_lagrange_eqs.jacobian(q)  # Stiffness matrix
-F = euler_lagrange_eqs - M * q_ddot - C * q_dot - K * q - F_external  # Subtract external forces
+Force = euler_lagrange_eqs - M * q_ddot - C * q_dot - K * q - F_external  # Subtract external forces
 
 # Simplify the external forces vector
-F_simplified = simplify(F)
+F_simplified = simplify(Force)
 
 # Print results
 print("Mass Matrix (M):")
