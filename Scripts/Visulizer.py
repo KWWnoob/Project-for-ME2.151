@@ -5,8 +5,8 @@ from matplotlib.animation import FuncAnimation
 from scipy.interpolate import interp1d
 
 # Parameters
-m1, m2, k, F = 1.0, 1.0, 10.0, 2.0  # Masses, spring constant, external force
-l, r = 5, 2                   # Length of rod and radius of disk
+m1, m2, k, F = 1.0, 1.0, 10.0, 0  # Masses, spring constant, external force
+l, r = 10, 2                   # Length of rod and radius of disk
 I1, I2 = 1 / 12 * m1 * l**2, m2 * r**2 / 2  # Moments of inertia
 dt = 0.1  # Time step
 t_span = (0, 30)  # Time span
@@ -100,8 +100,8 @@ smooth_q3 = interp_q3(smooth_time_points)
 
 # Animation Setup
 fig, ax = plt.subplots()
-ax.set_xlim(-30, 30)
-ax.set_ylim(-30, 30)
+ax.set_xlim(-40, 40)
+ax.set_ylim(-40, 40)
 ax.set_aspect('equal')
 ax.set_title("Lagrangian System Animation with PD Controller (Smoothed)")
 
