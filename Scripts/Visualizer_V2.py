@@ -12,7 +12,7 @@ from Lagrangian_V3_MatrixForm import compute_lagrangian_matrices
 M, C, K = compute_lagrangian_matrices()
 
 # Substitute numerical values
-m1_val, m2_val, k_val, F_val = 1.0, 1.0, 10.0, 10.0
+m1_val, m2_val, k_val, F_val = 1.0, 1.0, 2.0, 20.0
 l_val, r_val = 10.0, 2.0
 I1_val, I2_val = 1 / 12 * m1_val * l_val**2, m2_val * r_val**2 / 2
 dt = 0.1  # Time step
@@ -42,9 +42,9 @@ K_jnp = jnp.array(K_eval.tolist(), dtype=jnp.float32)
 # External Forces (F)
 def external_forces(q, q_dot):
     return jnp.array([
-        +F_val * r_val * 3 + k_val * r_val * q[0],
-        +F_val * r_val * 2 + k_val * r_val * q[1],
-        -F_val * r_val * 2 + k_val * r_val * q[2]
+        +F_val * r_val + k_val * r_val * q[0],
+        +F_val * r_val + k_val * r_val * q[1],
+        -F_val * r_val + k_val * r_val * q[2]
     ])
 
 # Equations of Motion
