@@ -1,3 +1,9 @@
+'''
+"Dyanmical Model"
+
+Change the general model in here
+'''
+
 import jax.numpy as jnp
 from sympy import symbols, diff, Function, Matrix, simplify, N
 
