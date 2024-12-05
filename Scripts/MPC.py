@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import cvxpy as cp
 from sympy import symbols, N
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -97,49 +98,74 @@ print("Controllability Matrix (Q_c):")
 print(controllability_matrix)
 print("\nIs the system controllable?", is_controllable)
 
-# Define LQR controller function
-def lqr(A, B, Q, R):
-    """Solve the continuous-time LQR controller."""
-    P = solve_continuous_are(A, B, Q, R)  # Solve Riccati equation
-    K = np.linalg.inv(R) @ (B.T @ P)  # Compute gain matrix
-    return K, P
+# Aggressive control weights
+Q = jnp.diag(jnp.array([500.0] * 3 + [0.0] * 3))  # High state cost
+R = np.eye(B.shape[1]) * 0.001  # Low control effort cost
+R_delta = np.eye(B.shape[1]) * 0.1  # Penalize slow changes in input
 
-# Define Q and R matrices
-cared_states_matrix = jnp.zeros((6, 6))
-cared_states_matrix = cared_states_matrix.at[:3, :3].set(jnp.eye(3))
+# Shorter prediction horizon
+N = 10
 
-Q = cared_states_matrix*100 # State cost matrix
-R = np.eye(B.shape[1])*0.001  # Control effort cost matrix
+# Expanded constraints
+u_max = 500
+u_min = 0
 
-def enforce_positive_input(u, bias=0.01):
-    return jnp.maximum(u, bias)
+# Solve MPC with updated aggressive settings
+def solve_mpc(x, x_ref, A, B, Q, R, R_delta, N, u_min=0, u_max=50):
+    # Convert matrices to NumPy for cvxpy
+    A_np, B_np, Q_np, R_np, R_delta_np = map(np.array, (A, B, Q, R, R_delta))
+    x_np = np.array(x)
+    x_ref_np = np.array(x_ref)
 
-# Compute LQR gain matrix
-K_lqr, P = lqr(A, B, Q, R)
+    n, m = A_np.shape[0], B_np.shape[1]
 
-print("LQR Gain Matrix (K):")
-print(K_lqr)
+    # Check dimensions
+    assert n > 0, "State dimension must be greater than 0."
+    assert m > 0, "Input dimension must be greater than 0."
+    assert N > 0, "Prediction horizon must be a positive integer."
 
-# Define the desired reference state
-# Adjust generalized coordinates or velocities as needed
-x_ref = jnp.array([0.5, 0.4, 0.8, 0.0, 0.0, 0.0])  # Reference generalized coordinates and velocities
+    U = cp.Variable((N, m))
+    X = cp.Variable((N + 1, n))
 
-# Update the state-space dynamics with LQR control and reference tracking
-def state_space_dynamics_with_reference(t, x, A, B, K, x_ref, u_log):
-    # Compute control input with reference tracking
-    u_t = -K @ (x - x_ref)
+    constraints = [X[0] == x_np]
+    cost = 0
+
+    for k in range(N):
+        cost += cp.quad_form(X[k] - x_ref_np, Q_np) + cp.quad_form(U[k], R_np)
+        constraints += [X[k + 1] == A_np @ X[k] + B_np @ U[k]]
+        constraints += [U[k] >= u_min, U[k] <= u_max]
+
+    problem = cp.Problem(cp.Minimize(cost), constraints)
+    problem.solve()
+
+    if problem.status != cp.OPTIMAL:
+        raise ValueError("MPC optimization problem not solved to optimality!")
+
+    return np.array(U.value[0]).flatten()
+
+
+
+# Update the state-space dynamics to use MPC
+def state_space_dynamics_with_mpc(t, x, A, B, x_ref, u_log):
+    u_t = solve_mpc(np.array(x), x_ref, A, B, Q, R, R_delta, N, u_min, u_max)
     dxdt = A @ x + B @ u_t
     u_log.append(u_t)
     return dxdt
 
-# Initial conditions (all states start at zero)
+
+x_ref = jnp.array([0.5, 0.4, 0.8, 0.0, 0.0, 0.0])  # Reference generalized coordinates and velocities
 x0 = jnp.zeros(A.shape[0])
 
-u_log = []
+def end_effector_position(q1, q2, q3, l_val):
+    # Compute position using forward kinematics
+    x = l_val * (jnp.cos(q1) + jnp.cos(q1 + q2) + jnp.cos(q1 + q2 + q3))
+    y = l_val * (jnp.sin(q1) + jnp.sin(q1 + q2) + jnp.sin(q1 + q2 + q3))
+    return x, y
 
-# Solve the closed-loop system with LQR and reference point
-solution_with_reference = solve_ivp(
-    fun=lambda t, x: state_space_dynamics_with_reference(t, x, A, B, K_lqr, x_ref, u_log),
+# Solve the closed-loop system with MPC
+u_log = []
+solution_with_mpc = solve_ivp(
+    fun=lambda t, x: state_space_dynamics_with_mpc(t, x, A, B, x_ref, u_log),
     t_span=t_span,
     y0=x0,
     t_eval=jnp.linspace(t_span[0], t_span[1], num_steps)
@@ -148,27 +174,20 @@ solution_with_reference = solve_ivp(
 u_values = np.array(u_log)
 
 # Extract states from the solution
-states_with_reference = solution_with_reference.y.T
+states_with_mpc = solution_with_mpc.y.T
 
-# Define the function to compute the end-effector position
-def end_effector_position(q1, q2, q3, l_val):
-    # Compute position using forward kinematics
-    x = l_val * (jnp.cos(q1) + jnp.cos(q1 + q2) + jnp.cos(q1 + q2 + q3))
-    y = l_val * (jnp.sin(q1) + jnp.sin(q1 + q2) + jnp.sin(q1 + q2 + q3))
-    return x, y
-
-# Compute the end-effector position over time with reference tracking
-end_effector_x_ref = []
-end_effector_y_ref = []
-for state in states_with_reference:
-    q1, q2, q3 = state[:3]  # Extract generalized coordinates
+# Compute the end-effector position over time with MPC
+end_effector_x_mpc = []
+end_effector_y_mpc = []
+for state in states_with_mpc:
+    q1, q2, q3 = state[:3]
     x, y = end_effector_position(q1, q2, q3, l_val)
-    end_effector_x_ref.append(x)
-    end_effector_y_ref.append(y)
+    end_effector_x_mpc.append(x)
+    end_effector_y_mpc.append(y)
 
 # Convert to NumPy arrays for plotting
-end_effector_x_ref = np.array(end_effector_x_ref)
-end_effector_y_ref = np.array(end_effector_y_ref)
+end_effector_x_ref = np.array(end_effector_x_mpc)
+end_effector_y_ref = np.array(end_effector_y_mpc)
 
 ref = end_effector_position(x_ref[0],x_ref[1],x_ref[2],l_val)
 
@@ -189,8 +208,8 @@ plt.close()  # Close the figure after saving
 
 # Plot controlled end-effector positions over time with reference tracking
 plt.figure(figsize=(12, 6))
-plt.plot(solution_with_reference.t, end_effector_x_ref, label="X Position (Reference Tracking)", color="blue")
-plt.plot(solution_with_reference.t, end_effector_y_ref, label="Y Position (Reference Tracking)", color="red")
+plt.plot(solution_with_mpc.t, end_effector_x_ref, label="X Position (Reference Tracking)", color="blue")
+plt.plot(solution_with_mpc.t, end_effector_y_ref, label="Y Position (Reference Tracking)", color="red")
 plt.axhline(y=ref[0], color='orange', linestyle='--', label="X Reference", linewidth=1)
 plt.axhline(y=ref[1], color='purple', linestyle='--', label="Y Reference", linewidth=1)
 plt.title("End-Effector Position Over Time with Reference Tracking")
@@ -218,10 +237,10 @@ plt.close()  # Close the figure after saving
 show_animation
 '''
 
-times = solution_with_reference.t
-q1 = [states[0] for states in solution_with_reference.y.T]
-q2 = [states[1] for states in solution_with_reference.y.T]
-q3 = [states[2] for states in solution_with_reference.y.T]
+times = solution_with_mpc.t
+q1 = [states[0] for states in solution_with_mpc.y.T]
+q2 = [states[1] for states in solution_with_mpc.y.T]
+q3 = [states[2] for states in solution_with_mpc.y.T]
 
 # Create finer time points for smoother animation
 smooth_time_points = np.linspace(t_span[0], t_span[1], 5 * num_steps)  # 5x frames
