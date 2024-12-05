@@ -25,15 +25,15 @@ M, C, K = compute_lagrangian_matrices()
 m1_val, m2_val, k_val = 1.0, 1.0, 10.0
 l_val, r_val = 10.0, 2.0
 I1_val, I2_val = 1 / 12 * m1_val * l_val**2, m2_val * r_val**2 / 2
-c1_val, c2_val, c3_val = 0.1, 0.1, 0.1  # Friction coefficients
+c1_val, c2_val, c3_val = 0.2, 0.2, 0.2  # Friction coefficients
 
 dt = 0.1  # Time step
 t_span = (0, 10)  # Time span
 num_steps = int((t_span[1] - t_span[0]) / dt)
 routing = jnp.array([
-        [1, 1, -1, -1],
-        [0, -1, 1, -1],
-        [0, 0, -1, 1]
+        [1, -1, 1, -1],
+        [0, 1, -1, -1],
+        [0, 0, 1, 1]
 ])
 
 substitutions = {
@@ -109,7 +109,7 @@ cared_states_matrix = jnp.zeros((6, 6))
 cared_states_matrix = cared_states_matrix.at[:3, :3].set(jnp.eye(3))
 
 Q = cared_states_matrix*100 # State cost matrix
-R = np.eye(B.shape[1])*0.001  # Control effort cost matrix
+R = np.eye(B.shape[1])*0.000000001  # Control effort cost matrix
 
 def enforce_positive_input(u, bias=0.01):
     return jnp.maximum(u, bias)
