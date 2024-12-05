@@ -1,7 +1,6 @@
 '''
-"Dyanmical Model
+Now with friction
 
-Change the general model in here
 '''
 
 import jax.numpy as jnp
@@ -19,6 +18,7 @@ def compute_lagrangian_matrices():
     m1, m2, k = symbols('m1 m2 k')  # Masses, spring constant
     l, r = symbols('l r')           # Length of rod and radius of disk
     I1, I2 = symbols('I1 I2')       # Moments of inertia for disks (I1) and rods (I2)
+    c1, c2, c3 = symbols('c1 c2 c3')  # Damping coefficients (friction)
 
     # Define kinetic energy (rotational and translational)
     T_rot_disks = 1/2 * I1 * sum(q_dot[i]**2 for i in range(3))
@@ -37,9 +37,13 @@ def compute_lagrangian_matrices():
     # Total Lagrangian
     L = T_rot_disks + T_rot_rods + T_trans_rods + T_trans_disks - V_spring
 
+    # Generalized friction forces
+    friction_forces = Matrix([-c1 * q_dot[0], -c2 * q_dot[1], -c3 * q_dot[2]])
+
     # Derive Euler-Lagrange equations
     euler_lagrange_eqs = Matrix([
-        diff(diff(L, q_dot[i]), t) - diff(L, q[i]) for i in range(3)
+        diff(diff(L, q_dot[i]), t) - diff(L, q[i]) + friction_forces[i]
+        for i in range(3)
     ])
 
     # Compute Mass (M), Damping (C), and Stiffness (K) matrices
@@ -54,9 +58,10 @@ if __name__ == '__main__':
     M, C, K = compute_lagrangian_matrices()
     
     # Substitute numerical values
-    m1_val, m2_val, k_val, F_val = 1.0, 1.0, 10.0, 0.0
+    m1_val, m2_val, k_val = 1.0, 1.0, 10.0
     l_val, r_val = 10.0, 2.0
     I1_val, I2_val = 1 / 12 * m1_val * l_val**2, m2_val * r_val**2 / 2
+    c1_val, c2_val, c3_val = 0.1, 0.1, 0.1  # Friction coefficients
 
     substitutions = {
         symbols('m1'): m1_val,
@@ -65,7 +70,10 @@ if __name__ == '__main__':
         symbols('l'): l_val,
         symbols('r'): r_val,
         symbols('I1'): I1_val,
-        symbols('I2'): I2_val
+        symbols('I2'): I2_val,
+        symbols('c1'): c1_val,
+        symbols('c2'): c2_val,
+        symbols('c3'): c3_val,
     }
 
     # Substitute and convert entries to floats

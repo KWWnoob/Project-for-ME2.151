@@ -27,6 +27,12 @@ I1_val, I2_val = 1 / 12 * m1_val * l_val**2, m2_val * r_val**2 / 2
 dt = 0.1  # Time step
 t_span = (0, 30)  # Time span
 num_steps = int((t_span[1] - t_span[0]) / dt)
+routing = jnp.array([
+        [1, 1, -1, 1],
+        [0,-1, 1, 1],
+        [0, 0, -1, 1]
+        ])
+# routing = [[1],[-1],[1]]
 
 substitutions = {
     symbols('m1'): m1_val,
@@ -48,14 +54,6 @@ M_jnp = jnp.array(M_eval.tolist(), dtype=jnp.float32)
 C_jnp = jnp.array(C_eval.tolist(), dtype=jnp.float32)
 K_jnp = jnp.array(K_eval.tolist(), dtype=jnp.float32)
 
-# External Forces (F)
-def external_forces(q, q_dot):
-    return jnp.array([
-        +F_val * r_val + k_val * r_val * q[0],
-        +F_val * r_val + k_val * r_val * q[1],
-        -F_val * r_val + k_val * r_val * q[2]
-    ])
-
 # Define the state-space dynamics
 def state_space_dynamics(t, x, A, B, u):
     u_t = u(t)  # Input as a function of time
@@ -64,7 +62,7 @@ def state_space_dynamics(t, x, A, B, u):
 
 # Define a time-varying input (e.g., step input)
 def input_function(t):
-    return jnp.array([1.0, 0.0, 0.0])  # Constant input for demonstration
+    return jnp.array([10.0, 10.0, 10.0, 10])  # Constant input for demonstration
 
 # Compute state-space matrices
 def compute_state_space(M, K):
@@ -76,11 +74,17 @@ def compute_state_space(M, K):
     A_bottom = jnp.hstack([-jnp.linalg.solve(M, K), jnp.zeros((n, n))])  # Bottom part of A
     A = jnp.vstack([A_top, A_bottom])  # Combine top and bottom parts
 
-    B = jnp.vstack([jnp.zeros((n, n)), jnp.linalg.inv(M)])  # Input matrix
+    # Corrected B matrix
+    B = jnp.vstack([
+        jnp.zeros((n, routing.shape[1])),  # Zero padding for velocity states
+        jnp.linalg.inv(M) @ (r_val * routing)  # Matrix multiplication
+    ])
+    
     C = jnp.eye(2 * n)  # Output matrix (identity for full-state feedback)
-    D = jnp.zeros((2 * n, n))  # Direct feedthrough matrix
+    D = jnp.zeros((2 * n, routing.shape[1]))  # Direct feedthrough matrix
 
     return A, B, C, D
+
 
 # Compute A, B, C, D matrices
 A, B, C, D = compute_state_space(M_jnp, K_jnp)
