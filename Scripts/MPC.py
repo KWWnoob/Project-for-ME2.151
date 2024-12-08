@@ -1,47 +1,34 @@
-"""
-This is the drive code for the model predictive controller -
-
-Unconstrained Model Predictive Control Implementation in Python 
-- This version is without an observer, that is, it assumes that the
-- the state vector is perfectly known
-
-Tutorial page that explains how to derive the algorithm is given here:
-https://aleksandarhaber.com/model-predictive-control-mpc-tutorial-1-unconstrained-formulation-derivation-and-implementation-in-python-from-scratch/
-    
-
-
-@author: Aleksandar Haber
-Date: September 2023
-
-
-"""
 import numpy as np
 import matplotlib.pyplot as plt
+import do_mpc
+import casadi
 from sympy import symbols, N
-import jax.numpy as jnp
-
 from Lagrangian_V4_MatrixForm import compute_lagrangian_matrices
-from functionMPC import systemSimulate
-from ModelPredictiveControl import ModelPredictiveControl
+from scipy.linalg import solve_continuous_are
+from matplotlib.animation import FuncAnimation
+from scipy.interpolate import interp1d
 
-# Compute matrices
-M, C, K = compute_lagrangian_matrices()
-
-# Substitute numerical values
-m1_val, m2_val, k_val = 1.0, 1.0, 10.0
+# --- System Parameters ---
+m1_val, m2_val, k_val = 10.0, 1.0, 10.0
 l_val, r_val = 10.0, 2.0
 I1_val, I2_val = 1 / 12 * m1_val * l_val**2, m2_val * r_val**2 / 2
-c1_val, c2_val, c3_val = 0.2, 0.2, 0.2  # Friction coefficients
-
-dt = 0.1  # Time step
-t_span = (0, 10)  # Time span
+c1_val, c2_val, c3_val = 0.5, 0.5, 0.5  # Friction coefficients
+t_span = (0, 20)
+dt = 0.5
 num_steps = int((t_span[1] - t_span[0]) / dt)
-routing = jnp.array([
-        [1, -1, 1, -1],
-        [0, 1, -1, -1],
-        [0, 0, 1, 1]
-])
 
+# routing = np.array([
+#         [1,-1, -1, 1,  1, -1],
+#         [0, 0,  1, 1, -1, -1],
+#         [0, 0,0,  0,  -1,  1]
+# ])
+routing = np.array([
+        [1, -1,  1, -1],
+        [0,  1, -1, -1],
+        [0,0,  -1,  1]
+])
+# --- Compute Symbolic Matrices ---
+M, C, K = compute_lagrangian_matrices()
 substitutions = {
     symbols('m1'): m1_val,
     symbols('m2'): m2_val,
@@ -54,239 +41,258 @@ substitutions = {
     symbols('c2'): c2_val,
     symbols('c3'): c3_val,
 }
-
-# Substitute and convert entries to floats
 M_eval = M.subs(substitutions).applyfunc(N)
 C_eval = C.subs(substitutions).applyfunc(N)
 K_eval = K.subs(substitutions).applyfunc(N)
 
-# Convert to JAX arrays
-M_jnp = jnp.array(M_eval.tolist(), dtype=jnp.float32)
-C_jnp = jnp.array(C_eval.tolist(), dtype=jnp.float32)
-K_jnp = jnp.array(K_eval.tolist(), dtype=jnp.float32)
+M_np = np.array(M_eval.tolist(), dtype=float)
+C_np = np.array(C_eval.tolist(), dtype=float)
+K_np = np.array(K_eval.tolist(), dtype=float)
 
-def compute_state_space(M, K, C):
-    """Compute the A, B, C, D matrices for the state-space representation."""
-    n = M.shape[0]  # Number of degrees of freedom
-    
-    # State-space matrices
-    A_top = jnp.hstack([jnp.zeros((n, n)), jnp.eye(n)])  # Top part of A
-    A_bottom = jnp.hstack([-jnp.linalg.solve(M, K),-jnp.linalg.solve(M, C)])  # Bottom part of A
-    A = jnp.vstack([A_top, A_bottom])  # Combine top and bottom parts
+n = M_np.shape[0]
 
-    # Corrected B matrix
-    B = jnp.vstack([
-        jnp.zeros((n, routing.shape[1])),  # Zero padding for velocity states
-        jnp.linalg.inv(M) @ (r_val * routing)  # Matrix multiplication
-    ])
-    
-    C = jnp.eye(2 * n)  # Output matrix (identity for full-state feedback)
-    D = jnp.zeros((2 * n, routing.shape[1]))  # Direct feedthrough matrix
+# --- Continuous-time State-Space ---
+A_top = np.hstack([np.zeros((n, n)), np.eye(n)])
+A_bottom = np.hstack([-np.linalg.solve(M_np, K_np), -np.linalg.solve(M_np, C_np)])
+A_c = np.vstack([A_top, A_bottom])
 
-    return A, B, C, D
-###############################################################################
-#  Define the MPC algorithm parameters
-###############################################################################
-# prediction horizon
-f=20
-# control horizon 
-v=20
+B_c = np.vstack([
+    np.zeros((n, routing.shape[1])),
+    np.linalg.inv(M_np) @ (r_val * routing)
+])
 
-###############################################################################
-# end of MPC parameter definitions
-###############################################################################
+nx = A_c.shape[0]
+nu = B_c.shape[1]
 
+# Desired reference state
+x_ref = np.array([0.5, 0.4, 0.4, 0.0, 0.0, 0.0])
 
-###############################################################################
-# Define the model
-###############################################################################
+# --- do-mpc Model (Continuous) ---
+model_type = 'continuous'
+model = do_mpc.model.Model(model_type)
 
-A, B, C, D = compute_state_space(M_jnp, K_jnp, C_jnp)
+# Define state & input variables
+x_var = model.set_variable(var_type='_x', var_name='x', shape=(nx,1))
+u_var = model.set_variable(var_type='_u', var_name='u', shape=(nu,1))
 
-# define the continuous-time system matrices
-Ac=A
-Bc=B
-Cc=C
+# dx/dt = A_c x + B_c u
+x_dot = A_c @ x_var + B_c @ u_var
+model.set_rhs('x', x_dot)
 
-r=4; m=1 # number of inputs and outputs
-n= 6 # state dimension
+model.setup()
 
+# --- MPC Controller ---
+mpc = do_mpc.controller.MPC(model)
 
-###############################################################################
-# end of model definition
-###############################################################################
+setup_mpc = {
+    'n_horizon': 20,       # Prediction horizon
+    't_step': dt,          # Sampling time for the MPC
+    'n_robust': 1,
+    'store_full_solution': True,
+    'nlpsol_opts': {'ipopt.linear_solver': 'mumps', 'ipopt.print_level':0, 'print_time':0}
+}
+mpc.set_param(**setup_mpc)
 
-###############################################################################
-# discretize and simulate the system step response
-###############################################################################
+# Cost function weights
+Q = np.diag([1, 1, 1, 0.0, 0.0, 0.0]) * 1000
+R = np.eye(nu)*0.0001
+P_terminal = solve_continuous_are(A_c, B_c, Q, R)
+print(P_terminal)
 
-# discretization constant
-sampling=0.05
+# Cost function
+mterm = (x_var - x_ref).T @ Q @ (x_var - x_ref) *200 # Terminal cost
+lterm = (x_var - x_ref).T @ Q @ (x_var - x_ref) + u_var.T @ R @ u_var  # Stage cost
 
-# model discretization
-I=np.identity(Ac.shape[0]) # this is an identity matrix
-A=np.linalg.inv(I-sampling*Ac)
-B=A*sampling*Bc
-C=Cc
+mpc.set_objective(mterm=mterm, lterm=lterm)
 
-# check the eigenvalues
-eigen_A=np.linalg.eig(Ac)[0]
-eigen_Aid=np.linalg.eig(A)[0]
+# Input constraints: u >= 0
+mpc.bounds['lower','_u','u'] = np.zeros((nu,1))
+mpc.bounds['upper','_u','u'] = np.ones((nu,1))*300
+# mpc.bounds['lower', '_x', 'x'] = np.array([0, 0, 0, -np.inf, -np.inf, -np.inf])  # Lower bounds
+# mpc.bounds['upper', '_x', 'x'] = np.array([1/(2*np.pi), 1/(2*np.pi), 1/(2*np.pi), np.inf, np.inf, np.inf])  # Upper bounds
+# Define terminal equality constraint as CasADi expression
+# terminal_constraint_expr = x_var - x_ref  # Assuming x_ref is a CasADi symbolic variable or compatible array
 
-timeSampleTest=200
+# # Add the constraint
+# mpc.set_nl_cons('terminal_constraint', terminal_constraint_expr)
 
-# compute the system's step response
-inputTest=10*np.ones((1,timeSampleTest))
-x0test=np.zeros(shape=(4,1))
+mpc.setup()
 
+# --- Simulator ---
+simulator = do_mpc.simulator.Simulator(model)
+params_simulator = {
+    't_step': dt,
+    'integration_tool': 'cvodes'  # try 'cvodes' or 'rk' if 'idas' does not work
+}
+simulator.set_param(**params_simulator)
+simulator.setup()
 
-# simulate the discrete-time system 
-Ytest, Xtest=systemSimulate(A,B,C,inputTest,x0test)
+# Initial conditions
+x0 = np.zeros((nx,1))
+mpc.x0 = x0
+simulator.x0 = x0
+mpc.set_initial_guess()
 
+# Run Closed-Loop Simulation
+x_history = [x0.squeeze()]
+u_history = []
 
-plt.figure(figsize=(8,8))
-plt.plot(Ytest[0,:],linewidth=4, label='Step response - output')
-plt.xlabel('time steps')
-plt.ylabel('output')
+current_state = x0
+for k in range(num_steps):
+    # Get optimal control from MPC
+    u0 = mpc.make_step(current_state)
+    # Simulate one step ahead with the simulator
+    next_state = simulator.make_step(u0)
+    x_history.append(next_state.squeeze())
+    u_history.append(u0.squeeze())
+    current_state = next_state
+
+x_history = np.array(x_history)
+u_history = np.array(u_history)
+
+# --- Plot Results ---
+def end_effector_position(q1, q2, q3, l_val):
+    x = l_val * (np.cos(q1) + np.cos(q1 + q2) + np.cos(q1 + q2 + q3))
+    y = l_val * (np.sin(q1) + np.sin(q1 + q2) + np.sin(q1 + q2 + q3))
+    return x, y
+
+q1_mpc = x_history[:,0]
+q2_mpc = x_history[:,1]
+q3_mpc = x_history[:,2]
+
+end_effector_x_mpc = []
+end_effector_y_mpc = []
+for i in range(x_history.shape[0]):
+    xx, yy = end_effector_position(q1_mpc[i], q2_mpc[i], q3_mpc[i], l_val)
+    end_effector_x_mpc.append(xx)
+    end_effector_y_mpc.append(yy)
+
+end_effector_x_mpc = np.array(end_effector_x_mpc)
+end_effector_y_mpc = np.array(end_effector_y_mpc)
+
+ref_xy = end_effector_position(x_ref[0], x_ref[1], x_ref[2], l_val)
+
+time_array = np.linspace(t_span[0], t_span[1], x_history.shape[0])
+
+plt.figure(figsize=(12,6))
+plt.plot(end_effector_x_mpc, end_effector_y_mpc, label="MPC Trajectory (do-mpc)")
+plt.scatter(end_effector_x_mpc[0], end_effector_y_mpc[0], color='red', label="Start")
+plt.scatter(end_effector_x_mpc[-1], end_effector_y_mpc[-1], color='blue', label="End")
+plt.scatter([ref_xy[0]], [ref_xy[1]], color='orange', marker='x', s=100, label="Reference")
+plt.title("MPC End-Effector Trajectory (do-mpc)")
+plt.xlabel("X Position")
+plt.ylabel("Y Position")
 plt.legend()
-plt.savefig('stepResponse.png',dpi=600)
-plt.show()
+plt.grid()
+plt.axis('equal')
+plt.savefig('MPC_controlled_trajectory_reference_tracking.png', dpi=300)
+plt.close()  # Close the figure after saving
 
-###############################################################################
-# end of step response
-###############################################################################
-
-###############################################################################
-# form the weighting matrices
-###############################################################################
-
-# W1 matrix
-W1=np.zeros(shape=(v*m,v*m))
-
-for i in range(v):
-    if (i==0):
-        W1[i*m:(i+1)*m,i*m:(i+1)*m]=np.eye(m,m)
-    else:
-        W1[i*m:(i+1)*m,i*m:(i+1)*m]=np.eye(m,m)
-        W1[i*m:(i+1)*m,(i-1)*m:(i)*m]=-np.eye(m,m)
-
-# W2 matrix
-Q0=0.0000000011
-Qother=0.0001
-
-W2=np.zeros(shape=(v*m,v*m))
-
-for i in range(v):
-    if (i==0):
-        W2[i*m:(i+1)*m,i*m:(i+1)*m]=Q0
-    else:
-        W2[i*m:(i+1)*m,i*m:(i+1)*m]=Qother
-
-# W3 matrix        
-W3=np.matmul(W1.T,np.matmul(W2,W1))
-
-# W4 matrix
-W4=np.zeros(shape=(f*r,f*r))
-
-# in the general case, this constant should be a matrix
-predWeight=10
-
-for i in range(f):
-    W4[i*r:(i+1)*r,i*r:(i+1)*r]=predWeight
-###############################################################################
-# end of step response
-###############################################################################
-
-###############################################################################
-# Define the reference trajectory 
-###############################################################################
-
-timeSteps=300
-
-# here you need to comment/uncomment the trajectory that you want to use
-
-# exponential trajectory
-# timeVector=np.linspace(0,100,timeSteps)
-#desiredTrajectory=np.ones(timeSteps)-np.exp(-0.01*timeVector)
-#desiredTrajectory=np.reshape(desiredTrajectory,(timeSteps,1))
-
-# pulse trajectory
-desiredTrajectory=np.zeros(shape=(timeSteps,1))
-desiredTrajectory[0:100,:]=np.ones((100,1))
-desiredTrajectory[200:,:]=np.ones((100,1))
-
-# step trajectory
-
-#desiredTrajectory=0.3*np.ones(shape=(timeSteps,1))
-
-###############################################################################
-# end of definition of the reference trajectory 
-###############################################################################
-
-###############################################################################
-# Simulate the MPC algorithm and plot the results
-###############################################################################
-
-# set the initial state
-x0=x0test
-
-# create the MPC object
-
-mpc=ModelPredictiveControl(A,B,C,f,v,W3,W4,x0,desiredTrajectory)
-
-# simulate the controller
-
-for i in range(timeSteps-f):
-    mpc.computeControlInputs()
-    
-    
-
-# extract the state estimates in order to plot the results
-desiredTrajectoryList=[]
-controlledTrajectoryList=[]
-controlInputList=[]
-for j in np.arange(timeSteps-f):
-    controlledTrajectoryList.append(mpc.outputs[j][0,0])
-    desiredTrajectoryList.append(desiredTrajectory[j,0])
-    controlInputList.append(mpc.inputs[j][0,0])
-
-# plot the results
-    
-plt.figure(figsize=(8,8))
-plt.plot(controlledTrajectoryList,linewidth=4, label='Controlled trajectory')
-plt.plot(desiredTrajectoryList,'r', linewidth=2, label='Desired trajectory')
-plt.xlabel('time steps')
-plt.ylabel('Outputs')
+# Plotting end-effector position over time
+plt.figure(figsize=(12,6))
+plt.plot(time_array, end_effector_x_mpc, label="X Position")
+plt.plot(time_array, end_effector_y_mpc, label="Y Position")
+plt.axhline(y=ref_xy[0], color='orange', linestyle='--', label="X Ref")
+plt.axhline(y=ref_xy[1], color='purple', linestyle='--', label="Y Ref")
+plt.title("End-Effector Position Over Time (MPC, do-mpc)")
+plt.xlabel("Time (s)")
+plt.ylabel("Position (units)")
 plt.legend()
-plt.savefig('controlledOutputsPulse.png',dpi=600)
-plt.show()
+plt.grid()
+plt.savefig('MPC_end_effector_position_over_time_reference_tracking.png', dpi=300)
+plt.close()  # Close the figure after saving
 
+# Plot control inputs
+plt.figure(figsize=(12,6))
+for i in range(u_history.shape[1]):
+    plt.plot(time_array[:-1], u_history[:,i], label=f"u[{i}]")
 
-plt.figure(figsize=(8,8))
-plt.plot(controlInputList,linewidth=4, label='Computed inputs')
-plt.xlabel('time steps')
-plt.ylabel('Input')
+plt.title("Control Inputs Over Time (MPC, do-mpc)")
+plt.xlabel("Time (s)")
+plt.ylabel("Input (units)")
 plt.legend()
-plt.savefig('inputsPulse.png',dpi=600)
+plt.grid()
+plt.savefig('MPC_control_input_over_time.png', dpi=300)
+plt.close
+
+'''
+show_animation
+'''
+
+time_array = np.linspace(t_span[0], t_span[1], x_history.shape[0])
+q1_mpc = x_history[:,0]
+q2_mpc = x_history[:,1]
+q3_mpc = x_history[:,2]
+
+# Create finer time points for smoother animation
+smooth_time_points = np.linspace(t_span[0], t_span[1], 5*num_steps)  # 5x frames
+interp_q1 = interp1d(time_array, q1_mpc, kind='cubic')  # Cubic interpolation
+interp_q2 = interp1d(time_array, q2_mpc, kind='cubic')
+interp_q3 = interp1d(time_array, q3_mpc, kind='cubic')
+
+# Interpolated values
+smooth_q1 = interp_q1(smooth_time_points)
+smooth_q2 = interp_q2(smooth_time_points)
+smooth_q3 = interp_q3(smooth_time_points)
+
+# Animation Setup
+fig, ax = plt.subplots()
+ax.set_xlim(-40, 40)
+ax.set_ylim(-40, 40)
+ax.set_aspect('equal')
+ax.set_title("MPC Control_System Animation")
+
+# Add the reference point to the plot
+reference_point = ax.scatter(ref_xy[0], ref_xy[1], color='orange', label="Reference Point", marker='x', s=100)
+
+# Create objects for disks and rods
+rod1, = ax.plot([], [], 'b-', lw=2)
+rod2, = ax.plot([], [], 'g-', lw=2)
+rod3, = ax.plot([], [], 'r-', lw=2)
+disk1 = plt.Circle((0, 0), r_val, color='b', fill=True)
+disk2 = plt.Circle((l_val, 0), r_val, color='g', fill=True)
+disk3 = plt.Circle((2 * l_val, 0), r_val, color='r', fill=True)
+ax.add_patch(disk1)
+ax.add_patch(disk2)
+ax.add_patch(disk3)
+
+# Initialize animation
+def init():
+    rod1.set_data([], [])
+    rod2.set_data([], [])
+    rod3.set_data([], [])
+    return rod1, rod2, rod3, disk1, disk2, disk3
+
+# Update animation frame
+def update(frame):
+    x1, y1 = 0, 0  # Fixed base
+    x2, y2 = x1 + l_val * np.cos(smooth_q1[frame]), y1 + l_val * np.sin(smooth_q1[frame])
+    x3, y3 = x2 + l_val * np.cos(smooth_q1[frame]+smooth_q2[frame]), y2 + l_val * np.sin(smooth_q1[frame]+smooth_q2[frame])
+    x4, y4 = x3 + l_val * np.cos(smooth_q1[frame]+smooth_q2[frame]+smooth_q3[frame]), y3 + l_val * np.sin(smooth_q1[frame]+smooth_q2[frame]+smooth_q3[frame])
+
+    # Update rods
+    rod1.set_data([x1, x2], [y1, y2])
+    rod2.set_data([x2, x3], [y2, y3])
+    rod3.set_data([x3, x4], [y3, y4])
+
+    # Update disks
+    disk1.center = (x1, y1)
+    disk2.center = (x2, y2)
+    disk3.center = (x3, y3)
+
+    return rod1, rod2, rod3, disk1, disk2, disk3
+
+# Create animation
+ani = FuncAnimation(
+    fig,
+    update,
+    frames=len(smooth_time_points),
+    init_func=init,
+    blit=True,
+    interval=1000 * dt / 15  # Adjust playback speed
+)
+# Save the animation as a video
+ani.save('MPC_Control_Animation.gif', writer='pillow', fps=48)
+
+# Show animation
 plt.show()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

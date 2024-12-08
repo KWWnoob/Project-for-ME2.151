@@ -32,7 +32,7 @@ def compute_lagrangian_matrices():
     )
 
     # Define potential energy (spring energy)
-    V_spring = 1/2 * k * sum(q[i]**2 for i in range(3))
+    V_spring = 1/2 * k * sum((q[i]*r)**2 for i in range(3))
 
     # Total Lagrangian
     L = T_rot_disks + T_rot_rods + T_trans_rods + T_trans_disks - V_spring

@@ -1,5 +1,6 @@
-import jax
-import jax.numpy as jnp
+'''
+LQR Controller
+'''
 import numpy as np
 from sympy import symbols, N
 import matplotlib.pyplot as plt
@@ -9,12 +10,15 @@ from scipy.linalg import solve_continuous_are
 from scipy.interpolate import interp1d
 from Lagrangian_V4_MatrixForm import compute_lagrangian_matrices
 
+# Define the desired reference state
+x_ref = np.array([0.5, 0.4, 0.8, 0.0, 0.0, 0.0])  # Reference generalized coordinates and velocities
+
 def check_controllability(A, B):
     """Check if the system is controllable."""
     n = A.shape[0]
     Q_c = B  # Start with B
     for i in range(1, n):
-        Q_c = jnp.hstack([Q_c, jnp.linalg.matrix_power(A, i) @ B])  # Append A^i B
+        Q_c = np.hstack([Q_c, np.linalg.matrix_power(A, i) @ B])  # Append A^i B
     rank = np.linalg.matrix_rank(Q_c)
     return rank == n, Q_c
 
@@ -22,18 +26,24 @@ def check_controllability(A, B):
 M, C, K = compute_lagrangian_matrices()
 
 # Substitute numerical values
-m1_val, m2_val, k_val = 1.0, 1.0, 10.0
+m1_val, m2_val, k_val = 10.0, 1.0, 10.0
 l_val, r_val = 10.0, 2.0
 I1_val, I2_val = 1 / 12 * m1_val * l_val**2, m2_val * r_val**2 / 2
-c1_val, c2_val, c3_val = 0.2, 0.2, 0.2  # Friction coefficients
+c1_val, c2_val, c3_val = 0.5, 0.5, 0.5  # Friction coefficients
 
 dt = 0.1  # Time step
 t_span = (0, 10)  # Time span
 num_steps = int((t_span[1] - t_span[0]) / dt)
-routing = jnp.array([
-        [1, -1, 1, -1],
-        [0, 1, -1, -1],
-        [0, 0, 1, 1]
+# routing = np.array([
+#         [1,-1, -1, 1,  1, -1],
+#         [0, 0,  1, 1, -1, -1],
+#         [0, 0,0,  0,  -1,  1]
+# ])
+
+routing = np.array([
+        [1, -1,  1, -1],
+        [0,  1, -1, -1],
+        [0,0,  -1,  1]
 ])
 
 substitutions = {
@@ -54,10 +64,10 @@ M_eval = M.subs(substitutions).applyfunc(N)
 C_eval = C.subs(substitutions).applyfunc(N)
 K_eval = K.subs(substitutions).applyfunc(N)
 
-# Convert to JAX arrays
-M_jnp = jnp.array(M_eval.tolist(), dtype=jnp.float32)
-C_jnp = jnp.array(C_eval.tolist(), dtype=jnp.float32)
-K_jnp = jnp.array(K_eval.tolist(), dtype=jnp.float32)
+# Convert to NumPy arrays
+M_np = np.array(M_eval.tolist(), dtype=np.float32)
+C_np = np.array(C_eval.tolist(), dtype=np.float32)
+K_np = np.array(K_eval.tolist(), dtype=np.float32)
 
 # Define the state-space dynamics
 def state_space_dynamics(t, x, A, B, u):
@@ -71,31 +81,31 @@ def compute_state_space(M, K, C):
     n = M.shape[0]  # Number of degrees of freedom
     
     # State-space matrices
-    A_top = jnp.hstack([jnp.zeros((n, n)), jnp.eye(n)])  # Top part of A
-    A_bottom = jnp.hstack([-jnp.linalg.solve(M, K),-jnp.linalg.solve(M, C)])  # Bottom part of A
-    A = jnp.vstack([A_top, A_bottom])  # Combine top and bottom parts
+    A_top = np.hstack([np.zeros((n, n)), np.eye(n)])  # Top part of A
+    A_bottom = np.hstack([-np.linalg.solve(M, K), -np.linalg.solve(M, C)])  # Bottom part of A
+    A = np.vstack([A_top, A_bottom])  # Combine top and bottom parts
 
     # Corrected B matrix
-    B = jnp.vstack([
-        jnp.zeros((n, routing.shape[1])),  # Zero padding for velocity states
-        jnp.linalg.inv(M) @ (r_val * routing)  # Matrix multiplication
+    B = np.vstack([
+        np.zeros((n, routing.shape[1])),  # Zero padding for velocity states
+        np.linalg.inv(M) @ (r_val * routing)  # Matrix multiplication
     ])
     
-    C = jnp.eye(2 * n)  # Output matrix (identity for full-state feedback)
-    D = jnp.zeros((2 * n, routing.shape[1]))  # Direct feedthrough matrix
+    C = np.eye(2 * n)  # Output matrix (identity for full-state feedback)
+    D = np.zeros((2 * n, routing.shape[1]))  # Direct feedthrough matrix
 
     return A, B, C, D
 
 # Compute A, B, C, D matrices
-A, B, C, D = compute_state_space(M_jnp, K_jnp, C_jnp)
+A, B, C, D = compute_state_space(M_np, K_np, C_np)
+print(np.linalg.eig(A))
+# # Check controllability
+# is_controllable, controllability_matrix = check_controllability(A, B)
 
-# Check controllability
-is_controllable, controllability_matrix = check_controllability(A, B)
-
-# Output results
-print("Controllability Matrix (Q_c):")
-print(controllability_matrix)
-print("\nIs the system controllable?", is_controllable)
+# # Output results
+# print("Controllability Matrix (Q_c):")
+# print(controllability_matrix)
+# print("\nIs the system controllable?", is_controllable)
 
 # Define LQR controller function
 def lqr(A, B, Q, R):
@@ -105,14 +115,11 @@ def lqr(A, B, Q, R):
     return K, P
 
 # Define Q and R matrices
-cared_states_matrix = jnp.zeros((6, 6))
-cared_states_matrix = cared_states_matrix.at[:3, :3].set(jnp.eye(3))
+cared_states_matrix = np.zeros((6, 6))
+cared_states_matrix[:3, :3] = np.eye(3)
 
-Q = cared_states_matrix*100 # State cost matrix
-R = np.eye(B.shape[1])*0.000000001  # Control effort cost matrix
-
-def enforce_positive_input(u, bias=0.01):
-    return jnp.maximum(u, bias)
+Q = cared_states_matrix * 100  # State cost matrix
+R = np.eye(B.shape[1]) * 0.00001  # Control effort cost matrix
 
 # Compute LQR gain matrix
 K_lqr, P = lqr(A, B, Q, R)
@@ -120,9 +127,6 @@ K_lqr, P = lqr(A, B, Q, R)
 print("LQR Gain Matrix (K):")
 print(K_lqr)
 
-# Define the desired reference state
-# Adjust generalized coordinates or velocities as needed
-x_ref = jnp.array([0.5, 0.4, 0.8, 0.0, 0.0, 0.0])  # Reference generalized coordinates and velocities
 
 # Update the state-space dynamics with LQR control and reference tracking
 def state_space_dynamics_with_reference(t, x, A, B, K, x_ref, u_log):
@@ -133,7 +137,7 @@ def state_space_dynamics_with_reference(t, x, A, B, K, x_ref, u_log):
     return dxdt
 
 # Initial conditions (all states start at zero)
-x0 = jnp.zeros(A.shape[0])
+x0 = np.zeros(A.shape[0])
 
 u_log = []
 
@@ -142,7 +146,7 @@ solution_with_reference = solve_ivp(
     fun=lambda t, x: state_space_dynamics_with_reference(t, x, A, B, K_lqr, x_ref, u_log),
     t_span=t_span,
     y0=x0,
-    t_eval=jnp.linspace(t_span[0], t_span[1], num_steps)
+    t_eval=np.linspace(t_span[0], t_span[1], num_steps)
 )
 
 u_values = np.array(u_log)
@@ -153,8 +157,8 @@ states_with_reference = solution_with_reference.y.T
 # Define the function to compute the end-effector position
 def end_effector_position(q1, q2, q3, l_val):
     # Compute position using forward kinematics
-    x = l_val * (jnp.cos(q1) + jnp.cos(q1 + q2) + jnp.cos(q1 + q2 + q3))
-    y = l_val * (jnp.sin(q1) + jnp.sin(q1 + q2) + jnp.sin(q1 + q2 + q3))
+    x = l_val * (np.cos(q1) + np.cos(q1 + q2) + np.cos(q1 + q2 + q3))
+    y = l_val * (np.sin(q1) + np.sin(q1 + q2) + np.sin(q1 + q2 + q3))
     return x, y
 
 # Compute the end-effector position over time with reference tracking
@@ -184,7 +188,7 @@ plt.ylabel("Y Position")
 plt.legend()
 plt.grid()
 plt.axis('equal')
-plt.savefig('controlled_trajectory_reference_tracking.png', dpi=300)
+plt.savefig('LQR_controlled_trajectory_reference_tracking.png', dpi=300)
 plt.close()  # Close the figure after saving
 
 # Plot controlled end-effector positions over time with reference tracking
@@ -198,7 +202,7 @@ plt.xlabel("Time (s)")
 plt.ylabel("Position (units)")
 plt.legend()
 plt.grid()
-plt.savefig('end_effector_position_over_time_reference_tracking.png', dpi=300)
+plt.savefig('LQR_end_effector_position_over_time_reference_tracking.png', dpi=300)
 plt.close()  # Close the figure after saving
 
 # Plotting the control inputs
@@ -211,7 +215,7 @@ plt.xlabel("Time (s)")
 plt.ylabel("Input (units)")
 plt.legend(title="Control Components")
 plt.grid(True)
-plt.savefig('control_input_over_time.png', dpi=300)
+plt.savefig('LQR_control_input_over_time.png', dpi=300)
 plt.close()  # Close the figure after saving
 
 '''
@@ -239,7 +243,7 @@ fig, ax = plt.subplots()
 ax.set_xlim(-40, 40)
 ax.set_ylim(-40, 40)
 ax.set_aspect('equal')
-ax.set_title("Lagrangian System Animation")
+ax.set_title("LQR Control_System Animation")
 
 # Add the reference point to the plot
 reference_point = ax.scatter(ref[0], ref[1], color='orange', label="Reference Point", marker='x', s=100)
@@ -288,10 +292,10 @@ ani = FuncAnimation(
     frames=len(smooth_time_points),
     init_func=init,
     blit=True,
-    interval=1000 * dt / 5  # Adjust playback speed
+    interval=1000 * dt / 15  # Adjust playback speed
 )
 # Save the animation as a video
-ani.save('animation.gif', writer='pillow', fps=24)
+ani.save('LQR_animation.gif', writer='pillow', fps=48)
 
 # Show animation
 plt.show()
