@@ -176,13 +176,17 @@ end_effector_y_ref = np.array(end_effector_y_ref)
 
 ref = end_effector_position(x_ref[0],x_ref[1],x_ref[2],l_val)
 
+time_array_1 = np.linspace(t_span[0], t_span[1], end_effector_x_ref.shape[0])
+time_array_2 = np.linspace(t_span[0], t_span[1], u_values.shape[0]+1)
+
+
 # Plot the controlled end-effector trajectory with reference tracking
 plt.figure(figsize=(12, 6))
 plt.plot(end_effector_x_ref, end_effector_y_ref, label="Controlled Trajectory (Reference Tracking)", color="green")
 plt.scatter(end_effector_x_ref[0], end_effector_y_ref[0], color='red', label="Start (Controlled)")
 plt.scatter(end_effector_x_ref[-1], end_effector_y_ref[-1], color='blue', label="End (Controlled)")
 plt.scatter([ref[0]], [ref[1]], color='orange', label="Reference Point", marker='x', s=100)
-plt.title("Controlled End-Effector Trajectory with Reference Tracking")
+plt.title("LQR_Controlled End-Effector Trajectory with Reference Tracking")
 plt.xlabel("X Position")
 plt.ylabel("Y Position")
 plt.legend()
@@ -193,11 +197,11 @@ plt.close()  # Close the figure after saving
 
 # Plot controlled end-effector positions over time with reference tracking
 plt.figure(figsize=(12, 6))
-plt.plot(solution_with_reference.t, end_effector_x_ref, label="X Position (Reference Tracking)", color="blue")
-plt.plot(solution_with_reference.t, end_effector_y_ref, label="Y Position (Reference Tracking)", color="red")
+plt.plot(time_array_1, end_effector_x_ref, label="X Position (Reference Tracking)", color="blue")
+plt.plot(time_array_1, end_effector_y_ref, label="Y Position (Reference Tracking)", color="red")
 plt.axhline(y=ref[0], color='orange', linestyle='--', label="X Reference", linewidth=1)
 plt.axhline(y=ref[1], color='purple', linestyle='--', label="Y Reference", linewidth=1)
-plt.title("End-Effector Position Over Time with Reference Tracking")
+plt.title("LQR_End-Effector Position Over Time with Reference Tracking")
 plt.xlabel("Time (s)")
 plt.ylabel("Position (units)")
 plt.legend()
@@ -208,9 +212,9 @@ plt.close()  # Close the figure after saving
 # Plotting the control inputs
 plt.figure(figsize=(12, 6))
 for i in range(u_values.shape[1]):  # Plot each component of u
-    plt.plot(u_values[:, i], label=f"u[{i}]")
+    plt.plot(time_array_2[:-1],u_values[:, i], label=f"u[{i}]")
 
-plt.title("Control Input Over Time")
+plt.title("LQR_Control Input Over Time")
 plt.xlabel("Time (s)")
 plt.ylabel("Input (units)")
 plt.legend(title="Control Components")
@@ -295,7 +299,7 @@ ani = FuncAnimation(
     interval=1000 * dt / 15  # Adjust playback speed
 )
 # Save the animation as a video
-ani.save('LQR_animation.gif', writer='pillow', fps=48)
+ani.save('LQR_Control+Animation.gif', writer='pillow', fps=48)
 
 # Show animation
 plt.show()
