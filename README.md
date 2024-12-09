@@ -1,7 +1,7 @@
 ## Tendon-Driven finger Control through LQR and MPC, a comparable study
 By Kiwan Wong, Benjamin Zeng, and Joy Liu
 
-The tendon-driven finger control could only receive positive input, where LQR or PID might not be a good choice. We here implied MPC to constrain the input states to achieve a satisfying result.
+The tendon-driven finger could only receive positive input, where LQR or PID might not be a good choice. We here implied MPC to constrain the input states to achieve a satisfying result.
 
 ### MPC vs. LQR Animations
 <p align="center">
