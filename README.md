@@ -1,4 +1,4 @@
-## Finger Control
+## Finger Control through LQR and MPC, a comparable study
 By Kiwan Wong, Benjamin Zeng, and Joy Liu
 
 The finger control could only receive positive input, where LQR or PID might not be a good choice. We here implied MPC to constrain the input states to achieve a satisfying result.
