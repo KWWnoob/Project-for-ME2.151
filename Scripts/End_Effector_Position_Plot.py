@@ -5,7 +5,7 @@ from sympy import symbols, N
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 
-from Lagrangian_V3_MatrixForm import compute_lagrangian_matrices
+from Lagrangian_V4_MatrixForm import compute_lagrangian_matrices
 import numpy.linalg as la
 
 def check_controllability(A, B):
@@ -21,18 +21,25 @@ def check_controllability(A, B):
 M, C, K = compute_lagrangian_matrices()
 
 # Substitute numerical values
-m1_val, m2_val, k_val, F_val = 1.0, 1.0, 2.0, 20.0
+m1_val, m2_val, k_val = 10.0, 1.0, 10.0
 l_val, r_val = 10.0, 2.0
 I1_val, I2_val = 1 / 12 * m1_val * l_val**2, m2_val * r_val**2 / 2
+c1_val, c2_val, c3_val = 0.5, 0.5, 0.5  # Friction coefficients
+
 dt = 0.1  # Time step
-t_span = (0, 30)  # Time span
+t_span = (0, 10)  # Time span
 num_steps = int((t_span[1] - t_span[0]) / dt)
-routing = jnp.array([
-        [1, 1, -1, 1],
-        [0,-1, 1, 1],
-        [0, 0, -1, 1]
-        ])
-# routing = [[1],[-1],[1]]
+# routing = np.array([
+#         [1,-1, -1, 1,  1, -1],
+#         [0, 0,  1, 1, -1, -1],
+#         [0, 0,0,  0,  -1,  1]
+# ])
+
+routing = np.array([
+        [1, -1,  1, -1],
+        [0,  1, -1, -1],
+        [0,0,  -1,  1]
+])
 
 substitutions = {
     symbols('m1'): m1_val,
@@ -41,7 +48,10 @@ substitutions = {
     symbols('l'): l_val,
     symbols('r'): r_val,
     symbols('I1'): I1_val,
-    symbols('I2'): I2_val
+    symbols('I2'): I2_val,
+    symbols('c1'): c1_val,
+    symbols('c2'): c2_val,
+    symbols('c3'): c3_val,
 }
 
 # Substitute and convert entries to floats
@@ -49,6 +59,7 @@ M_eval = M.subs(substitutions).applyfunc(N)
 C_eval = C.subs(substitutions).applyfunc(N)
 K_eval = K.subs(substitutions).applyfunc(N)
 
+print(C_eval)
 # Convert to JAX arrays
 M_jnp = jnp.array(M_eval.tolist(), dtype=jnp.float32)
 C_jnp = jnp.array(C_eval.tolist(), dtype=jnp.float32)
@@ -65,13 +76,13 @@ def input_function(t):
     return jnp.array([10.0, 10.0, 10.0, 10])  # Constant input for demonstration
 
 # Compute state-space matrices
-def compute_state_space(M, K):
+def compute_state_space(M, K, C):
     """Compute the A, B, C, D matrices for the state-space representation."""
     n = M.shape[0]  # Number of degrees of freedom
     
     # State-space matrices
     A_top = jnp.hstack([jnp.zeros((n, n)), jnp.eye(n)])  # Top part of A
-    A_bottom = jnp.hstack([-jnp.linalg.solve(M, K), jnp.zeros((n, n))])  # Bottom part of A
+    A_bottom = jnp.hstack([-jnp.linalg.solve(M, K), -jnp.linalg.solve(M, C)])  # Bottom part of A
     A = jnp.vstack([A_top, A_bottom])  # Combine top and bottom parts
 
     # Corrected B matrix
@@ -87,7 +98,7 @@ def compute_state_space(M, K):
 
 
 # Compute A, B, C, D matrices
-A, B, C, D = compute_state_space(M_jnp, K_jnp)
+A, B, C, D = compute_state_space(M_jnp, K_jnp, C_jnp)
 
 # Check controllability
 is_controllable, controllability_matrix = check_controllability(A, B)
