@@ -96,76 +96,76 @@ def compute_state_space(M, K, C):
 
     return A, B, C, D
 
+if  __name__ == '__main__':
+    # Compute A, B, C, D matrices
+    A, B, C, D = compute_state_space(M_jnp, K_jnp, C_jnp)
 
-# Compute A, B, C, D matrices
-A, B, C, D = compute_state_space(M_jnp, K_jnp, C_jnp)
+    # Check controllability
+    is_controllable, controllability_matrix = check_controllability(A, B)
 
-# Check controllability
-is_controllable, controllability_matrix = check_controllability(A, B)
+    # Output results
+    print("Controllability Matrix (Q_c):")
+    print(controllability_matrix)
+    print("\nIs the system controllable?", is_controllable)
 
-# Output results
-print("Controllability Matrix (Q_c):")
-print(controllability_matrix)
-print("\nIs the system controllable?", is_controllable)
+    # Initial conditions (all states start at zero)
+    x0 = jnp.zeros(A.shape[0])
 
-# Initial conditions (all states start at zero)
-x0 = jnp.zeros(A.shape[0])
+    # Time span for the simulation
+    time_span = (0, 30)
+    time_points = jnp.linspace(time_span[0], time_span[1], num_steps)
 
-# Time span for the simulation
-time_span = (0, 30)
-time_points = jnp.linspace(time_span[0], time_span[1], num_steps)
+    # Solve the state-space equations
+    solution = solve_ivp(
+        fun=lambda t, x: state_space_dynamics(t, x, A, B, input_function),
+        t_span=time_span,
+        y0=x0,
+        t_eval=time_points
+    )
 
-# Solve the state-space equations
-solution = solve_ivp(
-    fun=lambda t, x: state_space_dynamics(t, x, A, B, input_function),
-    t_span=time_span,
-    y0=x0,
-    t_eval=time_points
-)
+    # Extract states from the solution
+    states = solution.y.T  # Transpose to get time along rows
 
-# Extract states from the solution
-states = solution.y.T  # Transpose to get time along rows
+    # Define the function to compute the end-effector position
+    def end_effector_position(q1, q2, q3, l_val):
+        # Compute position using forward kinematics
+        x = l_val * (jnp.cos(q1) + jnp.cos(q1 + q2) + jnp.cos(q1 + q2 + q3))
+        y = l_val * (jnp.sin(q1) + jnp.sin(q1 + q2) + jnp.sin(q1 + q2 + q3))
+        return x, y
 
-# Define the function to compute the end-effector position
-def end_effector_position(q1, q2, q3, l_val):
-    # Compute position using forward kinematics
-    x = l_val * (jnp.cos(q1) + jnp.cos(q1 + q2) + jnp.cos(q1 + q2 + q3))
-    y = l_val * (jnp.sin(q1) + jnp.sin(q1 + q2) + jnp.sin(q1 + q2 + q3))
-    return x, y
+    # Compute the end-effector position over time
+    end_effector_x = []
+    end_effector_y = []
+    for state in states:  # Iterate over states from the solution
+        q1, q2, q3 = state[:3]  # Extract the generalized coordinates
+        x, y = end_effector_position(q1, q2, q3, l_val)
+        end_effector_x.append(x)
+        end_effector_y.append(y)
 
-# Compute the end-effector position over time
-end_effector_x = []
-end_effector_y = []
-for state in states:  # Iterate over states from the solution
-    q1, q2, q3 = state[:3]  # Extract the generalized coordinates
-    x, y = end_effector_position(q1, q2, q3, l_val)
-    end_effector_x.append(x)
-    end_effector_y.append(y)
+    # Convert to NumPy arrays for plotting
+    end_effector_x = np.array(end_effector_x)
+    end_effector_y = np.array(end_effector_y)
 
-# Convert to NumPy arrays for plotting
-end_effector_x = np.array(end_effector_x)
-end_effector_y = np.array(end_effector_y)
+    # Plot the end-effector trajectory
+    plt.figure(figsize=(12, 6))
+    plt.plot(end_effector_x, end_effector_y, label="End-Effector Trajectory")
+    plt.scatter(end_effector_x[0], end_effector_y[0], color='red', label="Start")
+    plt.scatter(end_effector_x[-1], end_effector_y[-1], color='green', label="End")
+    plt.title("End-Effector Trajectory")
+    plt.xlabel("X Position")
+    plt.ylabel("Y Position")
+    plt.legend()
+    plt.grid()
+    plt.axis('equal')  # Ensure equal scaling for X and Y axes
+    plt.show()
 
-# Plot the end-effector trajectory
-plt.figure(figsize=(12, 6))
-plt.plot(end_effector_x, end_effector_y, label="End-Effector Trajectory")
-plt.scatter(end_effector_x[0], end_effector_y[0], color='red', label="Start")
-plt.scatter(end_effector_x[-1], end_effector_y[-1], color='green', label="End")
-plt.title("End-Effector Trajectory")
-plt.xlabel("X Position")
-plt.ylabel("Y Position")
-plt.legend()
-plt.grid()
-plt.axis('equal')  # Ensure equal scaling for X and Y axes
-plt.show()
-
-# Plot the end-effector positions over time
-plt.figure(figsize=(12, 6))
-plt.plot(solution.t, end_effector_x, label="X Position", color="blue")
-plt.plot(solution.t, end_effector_y, label="Y Position", color="red")
-plt.title("End-Effector Position Over Time")
-plt.xlabel("Time (s)")
-plt.ylabel("Position (units)")
-plt.legend()
-plt.grid()
-plt.show()
+    # Plot the end-effector positions over time
+    plt.figure(figsize=(12, 6))
+    plt.plot(solution.t, end_effector_x, label="X Position", color="blue")
+    plt.plot(solution.t, end_effector_y, label="Y Position", color="red")
+    plt.title("End-Effector Position Over Time")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Position (units)")
+    plt.legend()
+    plt.grid()
+    plt.show()
