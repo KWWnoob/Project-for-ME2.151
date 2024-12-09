@@ -8,7 +8,7 @@ from scipy.signal import ss2tf, tf2zpk
 from End_Effector_Position_Plot import compute_state_space, M_jnp, K_jnp, C_jnp
 
 # Reuse the state-space computation from End_Effector_Position_Plot.py
-A, B, C, D = compute_state_space(M_jnp, K_jnp)
+A, B, C, D = compute_state_space(M_jnp, K_jnp, C_jnp)
 
 # Define functions for controllability and observability
 def check_controllability(A, B):
