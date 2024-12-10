@@ -17,7 +17,9 @@ l_val, r_val = 10.0, 2.0
 I1_val, I2_val = 1 / 12 * m1_val * l_val**2, m2_val * r_val**2 / 2
 c1_val, c2_val, c3_val = 0.5, 0.5, 0.5  # Friction coefficients
 t_span = (0, 20)
-dt = 0.5
+# dt = 0.5
+dt = 1
+
 num_steps = int((t_span[1] - t_span[0]) / dt)
 
 # routing = np.array([
