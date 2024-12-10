@@ -8,6 +8,9 @@ from scipy.linalg import solve_continuous_are
 from matplotlib.animation import FuncAnimation
 from scipy.interpolate import interp1d
 
+# Desired reference state
+x_ref = np.array([0.5, 0.4, 0.8, 0.0, 0.0, 0.0])
+
 # --- System Parameters ---
 m1_val, m2_val, k_val = 10.0, 1.0, 10.0
 l_val, r_val = 10.0, 2.0
@@ -25,8 +28,9 @@ num_steps = int((t_span[1] - t_span[0]) / dt)
 routing = np.array([
         [1, -1,  1, -1],
         [0,  1, -1, -1],
-        [0,0,  -1,  1]
+        [0,  0, -1,  1]
 ])
+
 # --- Compute Symbolic Matrices ---
 M, C, K = compute_lagrangian_matrices()
 substitutions = {
@@ -64,8 +68,6 @@ B_c = np.vstack([
 nx = A_c.shape[0]
 nu = B_c.shape[1]
 
-# Desired reference state
-x_ref = np.array([0.5, 0.4, 0.4, 0.0, 0.0, 0.0])
 
 # --- do-mpc Model (Continuous) ---
 model_type = 'continuous'

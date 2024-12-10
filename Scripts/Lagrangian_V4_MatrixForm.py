@@ -38,7 +38,7 @@ def compute_lagrangian_matrices():
     L = T_rot_disks + T_rot_rods + T_trans_rods + T_trans_disks - V_spring
 
     # Generalized friction forces
-    friction_forces = Matrix([-c1 * q_dot[0], -c2 * q_dot[1], -c3 * q_dot[2]])
+    friction_forces = Matrix([-c1* r * q_dot[0], -c2 * r*q_dot[1], -c3 * r*q_dot[2]])
 
     # Derive Euler-Lagrange equations
     euler_lagrange_eqs = Matrix([
@@ -87,8 +87,8 @@ if __name__ == '__main__':
     K_jnp = jnp.array(K_eval.tolist(), dtype=jnp.float32)
 
     print("Mass Matrix (JAX, M):")
-    print(M_jnp)
+    print(M)
     print("\nDamping Matrix (JAX, C):")
-    print(C_jnp)
+    print(C)
     print("\nStiffness Matrix (JAX, K):")
-    print(K_jnp)
+    print(K)

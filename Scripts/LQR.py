@@ -46,6 +46,12 @@ routing = np.array([
         [0,0,  -1,  1]
 ])
 
+# routing = np.array([
+#         [-1,1],
+#         [1,-1],
+#         [0,1]
+# ])
+
 substitutions = {
     symbols('m1'): m1_val,
     symbols('m2'): m2_val,
